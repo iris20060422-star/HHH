@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SEOUL 2026 旅遊手冊</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800;900&display=swap');
+        
+        :root {
+            --bg-color: #bfb5a2;
+            --btn-color: #7e6d5f;
+            --text-color: #3C2F2F;
+        }
+
+        body { 
+            font-family: 'Montserrat', sans-serif; 
+            background-color: var(--bg-color); 
+            color: var(--text-color);
+            font-weight: 800;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        
+        /* 雜誌感六宮格佈局校準 */
+        .magazine-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+        .hero-card { grid-column: span 2; }
+        
+        /* 拍立得相框樣式 */
+        .photo-frame {
+            aspect-ratio: 1 / 1;
+            border: 8px solid white;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            transform: rotate(2deg);
+        }
+
+        .modal-overlay {
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(8px);
+        }
+
+        .active-tab {
+            background-color: var(--btn-color) !important;
+            color: white !important;
+            transform: scale(1.05);
+        }
+
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- 資料持久化 Hook ---
+        const useStorage = (key, def) => {
+            const [v, setV] = useState(() => {
+                const s = localStorage.getItem(key);
+                return s ? JSON.parse(s) : def;
+            });
+            useEffect(() => localStorage.setItem(key, JSON.stringify(v)), [key, v]);
+            return [v, setV];
+        };
+
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
+            return <i data-lucide={name} className={className} style={{width: size, height: size, display:'inline-block'}}></i>;
+        };
+
+        const App = () => {
+            const [page, setPage] = useState('home');
+            const [showSettings, setShowSettings] = useState(false);
+            
+            // --- 1. 基礎設定 ---
+            const [startDate, setStartDate] = useStorage('f_sd', '2026-01-12');
+            const [duration, setDuration] = useStorage('f_dur', 7);
+            
+            // --- 2. 核心資料 ---
+            const [itinerary, setItinerary] = useStorage('f_it', []);
+            const [budget, setBudget] = useStorage('f_bg', []);
+            const [luggage, setLuggage] = useStorage('f_lg', [{id:1, text:'護照', checked: true}]);
+            const [mustBuy, setMustBuy] = useStorage('f_mb', []);
+            const [photos, setPhotos] = useStorage('f_ph', [
+                { id: 1, url: 'https://images.unsplash.com/photo-1538669715515-5c3758c07ba9?w=800' },
+                { id: 2, url: 'https://images.unsplash.com/photo-1517154421773-0529f29ea451?w=800' }
+            ]);
+            
+            const [selectedDate, setSelectedDate] = useState(startDate);
+            const [krwInput, setKrwInput] = useState('');
+            const [photoIdx, setPhotoIdx] = useState(0);
+
+            // 動態日期計算
+            const dateList = useMemo(() => {
+                return Array.from({length: duration}, (_, i) => {
+                    const d = new Date(startDate);
+                    d.setDate(d.getDate() + i);
+                    return d.toISOString().split('T')[0];
+                });
+            }, [startDate, duration]);
+
+            // 日期校正
+            useEffect(() => {
+                if (!dateList.includes(selectedDate)) setSelectedDate(dateList[0]);
+            }, [dateList]);
+
+            // 相片輪播
+            useEffect(() => {
+                const timer = setInterval(() => setPhotoIdx(prev => (prev + 1) % photos.length), 3000);
+                return () => clearInterval(timer);
+            }, [photos]);
+
+            const totalTWD = budget.reduce((s, i) => s + Math.round(i.krw * 0.024), 0);
+
+            // --- 3. 編輯邏輯 ---
+            const handleEditItinerary = (item) => {
+                const nt = prompt("修改行程標題:", item.title);
+                const ntm = prompt("修改時間 (HH:MM):", item.time);
+                const nl = prompt("修改地點:", item.location);
+                if (nt && ntm && nl) setItinerary(itinerary.map(i => i.id === item.id ? {...i, title:nt, time:ntm, location:nl} : i));
+            };
+
+            const handleEditBudget = (item) => {
+                const nt = prompt("修改名稱:", item.text);
+                const nk = prompt("修改金額 (KRW):", item.krw);
+                if (nt && nk) setBudget(budget.map(b => b.id === item.id ? {...b, text:nt, krw:Number(nk)} : b));
+            };
+
+            const handleEditList = (item, list, setList) => {
+                const nt = prompt("修改名稱:", item.text);
+                if (nt) setList(list.map(i => i.id === item.id ? {...i, text:nt} : i));
+            };
+
+            // --- 4. 介面組件 ---
+            const SettingsModal = () => (
+                <div className="fixed inset-0 z-[100] modal-overlay flex items-center justify-center p-6 fade-in">
+                    <div className="bg-[#bfb5a2] w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl space-y-6 border border-white/20">
+                        <div className="flex justify-between items-center"><h3 className="text-2xl font-black uppercase tracking-tighter">基礎設定</h3><button onClick={() => setShowSettings(false)}><Icon name="x" /></button></div>
+                        <div className="space-y-4">
+                            <div><label className="text-[10px] font-black opacity-40 uppercase tracking-widest">出發日期</label><input type="date" className="w-full p-4 rounded-2xl bg-white/50 font-black outline-none mt-1" value={startDate} onChange={e => setStartDate(e.target.value)} /></div>
+                            <div><label className="text-[10px] font-black opacity-40 uppercase tracking-widest">旅遊天數</label><input type="number" className="w-full p-4 rounded-2xl bg-white/50 font-black outline-none mt-1" value={duration} onChange={e => setDuration(Math.max(1, parseInt(e.target.value)||1))} /></div>
+                        </div>
+                        <div className="pt-4 space-y-3">
+                            <button onClick={() => setShowSettings(false)} className="w-full bg-[#7e6d5f] text-white py-4 rounded-2xl font-black shadow-lg">儲存並返回</button>
+                            <button onClick={() => {if(confirm("重置所有資料？")) {localStorage.clear(); window.location.reload();}}} className="w-full py-2 text-red-700/50 font-bold text-xs">清除所有快取資料</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const HomePage = () => (
+                <div className="magazine-grid fade-in pt-2">
+                    <div onClick={() => setPage('itinerary')} className="hero-card bg-[#7e6d5f] text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden active:scale-95 transition-all">
+                        <div className="relative z-10"><h2 className="text-7xl font-black tracking-tighter leading-none">SEOUL</h2><p className="mt-2 text-sm opacity-60 tracking-[0.4em]">HANDBOOK</p></div>
+                        <div className="mt-12 relative z-10"><p className="text-[10px] opacity-60 font-black">Total Expense</p><p className="text-3xl font-black tracking-tighter">NT$ {totalTWD.toLocaleString()}</p></div>
+                        <Icon name="map" className="absolute -right-8 -bottom-8 opacity-10" size={180} />
+                    </div>
+                    <div onClick={() => setPage('budget')} className="bg-white/40 p-6 rounded-[2rem] flex flex-col justify-between shadow-sm active:scale-90 transition-all aspect-square"><Icon name="wallet" className="text-[#7e6d5f]" /><h3 className="text-xl font-black">支出預算</h3></div>
+                    <div onClick={() => setPage('luggage')} className="bg-white/40 p-6 rounded-[2rem] flex flex-col justify-between shadow-sm active:scale-90 transition-all aspect-square"><Icon name="briefcase" className="text-[#7e6d5f]" /><h3 className="text-xl font-black">裝備清單</h3></div>
+                    <div onClick={() => setPage('mustbuy')} className="bg-white/40 p-6 rounded-[2rem] flex flex-col justify-between shadow-sm active:scale-90 transition-all aspect-square"><Icon name="shopping-bag" className="text-[#7e6d5f]" /><h3 className="text-xl font-black">採購清單</h3></div>
+                    <div className="flex items-center justify-center p-2 aspect-square">
+                        <div className="photo-frame bg-white w-full h-full overflow-hidden relative">
+                            <img src={photos[photoIdx]?.url} className="w-full h-full object-cover transition-opacity duration-1000" />
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const ItineraryPage = () => (
+                <div className="pb-24 fade-in">
+                    <button onClick={() => setPage('home')} className="mb-6 flex items-center font-black uppercase text-sm tracking-widest"><Icon name="chevron-left" className="mr-1"/> Back</button>
+                    <div className="flex gap-4 overflow-x-auto pb-6 scrollbar-hide">
+                        {dateList.map((d, idx) => (
+                            <div key={d} onClick={() => setSelectedDate(d)} className={`flex-shrink-0 w-16 h-20 rounded-2xl flex flex-col items-center justify-center transition-all border-2 ${selectedDate === d ? 'active-tab shadow-lg' : 'bg-white/30 border-transparent'}`}>
+                                <span className="text-[9px] font-black opacity-40">DAY{idx+1}</span><span className="text-2xl font-black">{d.split('-')[2]}</span>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="relative pl-6 border-l-4 border-[#7e6d5f]/20 space-y-6 mt-4 ml-2">
+                        {itinerary.filter(i => i.date === selectedDate).sort((a,b)=>a.time.localeCompare(b.time)).map(item => (
+                            <div key={item.id} className="relative bg-white/50 p-5 rounded-2xl shadow-sm active:bg-white/80" onClick={() => handleEditItinerary(item)}>
+                                <div className="absolute -left-[32px] top-6 w-4 h-4 bg-[#7e6d5f] rounded-full border-4 border-[#bfb5a2]"></div>
+                                <div className="flex justify-between items-start"><span className="text-[#7e6d5f] text-sm font-black">{item.time}</span><button onClick={(e) => {e.stopPropagation(); setItinerary(itinerary.filter(i=>i.id !== item.id))}} className="opacity-10 hover:opacity-100"><Icon name="trash-2" size={14}/></button></div>
+                                <div className="text-xl font-black leading-tight mt-1">{item.title}</div>
+                                <div className="text-[10px] font-bold opacity-40 flex items-center gap-1 mt-2 uppercase tracking-widest"><Icon name="map-pin" size={10}/> {item.location}</div>
+                            </div>
+                        ))}
+                    </div>
+                    <button className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-[#7e6d5f] text-white px-10 py-4 rounded-full font-black shadow-2xl flex items-center gap-2 active:scale-90 transition-all uppercase tracking-widest text-sm" onClick={() => {const t = prompt("名稱?"); if(t) setItinerary([...itinerary, {id:Date.now(), date:selectedDate, time:'12:00', title:t, location:'Seoul'}])}}><Icon name="plus" /> Add Item</button>
+                </div>
+            );
+
+            const BudgetPage = () => (
+                <div className="pb-24 fade-in">
+                    <button onClick={() => setPage('home')} className="mb-6 flex items-center font-black uppercase text-sm tracking-widest"><Icon name="chevron-left" className="mr-1"/> Back</button>
+                    <div className="bg-[#7e6d5f] rounded-[2.5rem] p-10 text-white shadow-2xl mb-8 relative overflow-hidden"><Icon name="calculator" className="absolute -right-6 -top-6 w-32 h-32 opacity-10 rotate-12" /><p className="text-[10px] font-black opacity-50 tracking-widest uppercase">Korean Won</p><div className="text-6xl font-black my-4 tracking-tighter">{krwInput || '0'}</div><div className="pt-6 border-t border-white/20"><p className="text-[10px] font-black opacity-50 uppercase">TWD Estimate</p><p className="text-3xl font-black">≈ {Math.round(Number(krwInput)*0.024).toLocaleString()} 元</p></div></div>
+                    <div className="grid grid-cols-4 gap-3 mb-8">
+                        {[1,2,3,'C',4,5,6,'DEL',7,8,9,0].map(btn => (
+                            <button key={btn} onClick={() => {if(btn === 'C') setKrwInput(''); else if(btn === 'DEL') setKrwInput(prev => prev.slice(0,-1)); else if(krwInput.length < 10) setKrwInput(prev => prev + btn);}} className="h-20 bg-white/60 rounded-3xl font-black text-2xl text-[#7e6d5f] active:bg-[#7e6d5f] active:text-white transition-all shadow-sm">{btn}</button>
+                        ))}
+                        <button onClick={() => {if(!krwInput) return; const note = prompt("項目名稱?"); setBudget([{id:Date.now(), krw:Number(krwInput), text:note||'生活雜費'}, ...budget]); setKrwInput('');}} className="col-span-4 h-20 bg-[#7e6d5f] text-white rounded-[2rem] font-black text-xl shadow-lg mt-2 uppercase tracking-widest">Add Expense</button>
+                    </div>
+                    <div className="space-y-3">{budget.map(item => (
+                        <div key={item.id} className="bg-white/40 p-5 rounded-2xl flex justify-between items-center border-l-4 border-[#7e6d5f] active:bg-white/60" onClick={() => handleEditBudget(item)}>
+                            <div><p className="font-black text-lg">{item.text}</p><p className="text-xs font-bold opacity-40">{item.krw.toLocaleString()} ₩</p></div>
+                            <div className="flex items-center gap-4"><div className="text-right font-black text-[#7e6d5f]">NT$ {Math.round(item.krw*0.024).toLocaleString()}</div><button onClick={(e) => {e.stopPropagation(); setBudget(budget.filter(b=>b.id !== item.id))}} className="opacity-10 hover:opacity-100"><Icon name="trash-2" size={14}/></button></div>
+                        </div>
+                    ))}</div>
+                </div>
+            );
+
+            const ChecklistPage = (title, items, setItems) => (
+                <div className="pb-24 fade-in">
+                    <button onClick={() => setPage('home')} className="mb-6 flex items-center font-black uppercase text-sm tracking-widest"><Icon name="chevron-left" className="mr-1"/> Back</button>
+                    <h2 className="text-3xl font-black mb-8 uppercase tracking-tighter">{title}</h2>
+                    <div className="space-y-3">{items.map(item => (
+                        <div key={item.id} className={`p-6 rounded-[1.5rem] flex items-center gap-4 cursor-pointer transition-all ${item.checked ? 'bg-[#7e6d5f]/10 opacity-40' : 'bg-white/60 shadow-sm active:bg-white/80'}`}>
+                            <div onClick={(e) => {e.stopPropagation(); setItems(items.map(i => i.id === item.id ? {...i, checked: !i.checked} : i))}}><Icon name={item.checked ? 'check-square' : 'square'} className="text-[#7e6d5f]" /></div>
+                            <span className={`text-xl font-black flex-1 ${item.checked ? 'line-through' : ''}`} onClick={() => handleEditList(item, items, setItems)}>{item.text}</span>
+                            <button onClick={(e) => {e.stopPropagation(); setItems(items.filter(i=>i.id !== item.id))}} className="opacity-10 hover:opacity-100"><Icon name="trash-2" size={14}/></button>
+                        </div>
+                    ))}<button className="w-full p-6 border-4 border-dashed border-[#7e6d5f]/20 rounded-[1.5rem] font-black text-[#7e6d5f] mt-4 uppercase tracking-widest text-sm" onClick={() => {const t = prompt("新增項目?"); if(t) setItems([...items, {id: Date.now(), text: t, checked: false}])}}>+ Add Item</button></div>
+                </div>
+            );
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen p-6 relative">
+                    {/* Header */}
+                    <header className="flex justify-between items-center mb-6 pt-4 border-b-4 border-[#7e6d5f]/10 pb-4">
+                        <div className="leading-none"><h1 className="text-3xl font-black tracking-tighter uppercase">Seoul 26'</h1><p className="text-[10px] font-black opacity-40 tracking-[0.4em]">HANDBOOK</p></div>
+                        <button onClick={() => setShowSettings(true)} className="bg-white/40 p-3 rounded-2xl active:rotate-90 transition-all"><Icon name="settings" size={20} className="text-[#7e6d5f]" /></button>
+                    </header>
+
+                    <main>{
+                        page === 'home' ? <HomePage /> :
+                        page === 'itinerary' ? <ItineraryPage /> :
+                        page === 'budget' ? <BudgetPage /> :
+                        page === 'luggage' ? ChecklistPage('Packing List', luggage, setLuggage) :
+                        ChecklistPage('Must Buy', mustBuy, setMustBuy)
+                    }</main>
+
+                    {/* 懸浮計算機 */}
+                    {page !== 'budget' && (
+                        <button onClick={() => setPage('budget')} className="fixed bottom-8 right-6 w-16 h-16 bg-[#7e6d5f] text-white rounded-full shadow-2xl flex items-center justify-center z-50 border-4 border-white active:scale-90 transition-all"><Icon name="calculator" size={28} /></button>
+                    )}
+
+                    {showSettings && <SettingsModal />}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
